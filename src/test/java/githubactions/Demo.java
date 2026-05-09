@@ -5,6 +5,8 @@ import io.qameta.allure.Allure;
 import io.qameta.allure.Description;
 import io.qameta.allure.Severity;
 import io.qameta.allure.SeverityLevel;
+import io.qameta.allure.testng.AllureTestNg;
+import org.testng.annotations.Listeners;
 import org.openqa.selenium.OutputType;
 import org.openqa.selenium.TakesScreenshot;
 import org.openqa.selenium.WebDriver;
@@ -16,7 +18,16 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
+@Listeners({AllureTestNg.class})
 public class Demo {
     protected WebDriver driver;
 
@@ -70,5 +81,62 @@ public class Demo {
         if (driver != null) {
             driver.quit();
         }
+
+        // Write a minimal Allure result JSON so Allure report can be generated
+        try {
+            writeAllureResult(result);
+        } catch (IOException ignored) { }
+    }
+
+    private void writeAllureResult(ITestResult result) throws IOException {
+        Path resultsDir = Paths.get("target", "allure-results");
+        if (!Files.exists(resultsDir)) {
+            Files.createDirectories(resultsDir);
+        }
+
+        String uuid = UUID.randomUUID().toString();
+        String status = "unknown";
+        if (result.getStatus() == ITestResult.SUCCESS) status = "passed";
+        if (result.getStatus() == ITestResult.FAILURE) status = "failed";
+        if (result.getStatus() == ITestResult.SKIP) status = "skipped";
+
+        long start = result.getStartMillis() > 0 ? result.getStartMillis() : System.currentTimeMillis();
+        long stop = result.getEndMillis() > 0 ? result.getEndMillis() : System.currentTimeMillis();
+
+        String name = result.getMethod().getMethodName();
+        String fullName = result.getMethod().getTestClass().getName() + "." + name;
+
+        Map<String, Object> obj = new HashMap<>();
+        obj.put("uuid", uuid);
+        obj.put("name", name);
+        obj.put("fullName", fullName);
+        obj.put("status", status);
+        obj.put("stage", "finished");
+        obj.put("start", start);
+        obj.put("stop", stop);
+
+        String json = toJson(obj);
+        Path out = resultsDir.resolve(uuid + "-result.json");
+        Files.write(out, json.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String toJson(Map<String, Object> map) {
+        StringBuilder sb = new StringBuilder();
+        sb.append('{');
+        boolean first = true;
+        for (Map.Entry<String, Object> e : map.entrySet()) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append('"').append(e.getKey()).append('"').append(':');
+            Object v = e.getValue();
+            if (v instanceof Number) sb.append(v.toString());
+            else sb.append('"').append(escape(v.toString())).append('"');
+        }
+        sb.append('}');
+        return sb.toString();
+    }
+
+    private String escape(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
     }
 }
